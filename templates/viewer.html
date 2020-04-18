@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %} Viewer {% endblock %}
+{% block head %}
+ {{ super() }}
+{% endblock %}
+{% block body %}
+    <div class="container-fluid">
+      <div class="row-fluid">
+        <div class="span3">
+          <div class="well sidebar-nav">
+            <ul class="nav nav-list">
+              <li class="nav-header">Sidebar</li>
+                {% for d in doc_nav %}
+                    <li><a href="{{ url_for('viewer', doc_id=d[0]) }}">{{ d[1] }}</a></li>
+                {% endfor %}
+
+
+            </ul>
+          </div><!--/.well -->
+        </div><!--/span-->
+        <div class="span9">
+            <h1>Full Text</h1>
+          <div class="hero-unit">
+              {% if raw_text %}
+            <p>{{ raw_text.text }}</p>
+              {% endif %}
+
+          </div>
+            <div class="row-fluid">
+            <div class="span12">
+              <h2>Perspectives</h2>
+                <ul>
+                    {% for pers in perspectives%}
+                    <li>
+                        <ul>
+                            <li><p> perspective id: {{ pers }} <br> </p></li>
+                            <li><p>source: {{ perspectives[pers]['source'] }}</p></li>
+                            {% if perspectives[pers]['sentiment_cue'] == 'positive' %}<li><p style="color:green;">cue: {{ perspectives[pers]['cue'] }} </p></li>
+                            {% elif perspectives[pers]['sentiment_cue'] == 'negative' %}
+                            <li><p style="color:red;">cue: {{ perspectives[pers]['cue'] }} </p></li>
+                            {% else %}
+                            <li><p>cue: {{ perspectives[pers]['cue'] }}</p></li>
+                            {% endif %}
+                            <li><p>argument: {{ perspectives[pers]['argument'] }}</p></li>
+
+                        </ul>
+                    </li>
+
+                    {% endfor %}
+                </ul>
+            </div><!--/span-->
+          </div><!--/row-->
+          <div class="row-fluid">
+            <div class="span12">
+              <h2>Claims</h2>
+                <ul>
+                    {% for claim in claims %}
+                    <li><p> sentence id: {{ claim.sent_id }} <br> {{ claim.value }}</li>
+                    {% endfor %}
+                </ul>
+            </div><!--/span-->
+          </div><!--/row-->
+          <div class="row-fluid">
+            <div class="span12">
+              <h2>Attributions</h2>
+                <ul>
+                {% for attr in attributions %}
+
+                    <li>
+                        sentence id: {{ attr.sent_id }}
+                        <ul>
+                            <li>source: {{ attr.source }}</li>
+                            <li>cue: {{ attr.cue }}</li>
+                            <li>content: {{ attr.content }}</li>
+                        </ul>
+                    </li>
+                {% endfor %}
+                </ul>
+            </div><!--/span-->
+          </div><!--/row-->
+          <div class="row-fluid">
+            <div class="span12">
+              <h2>Propositions</h2>
+                <ul>
+                {% for p in props %}
+                    <li>sentence id: {{ p.sent_id }} </li>
+                    <ul>
+                        <li>predicate: {{ p.predicate }} </li>
+                        <ul>
+                        {% for key, val in p.roles.items() %}
+                        <li>
+                            {{ key }}: {{ val }}
+                        </li>
+                        {% endfor %}
+                        </ul>
+                    </ul>
+                {% endfor %}
+                </ul>
+            </div><!--/span-->
+          </div><!--/row-->
+          <div class="row-fluid">
+            <div class="span12">
+              <h2>Opinions</h2>
+                <ul>
+                {% for o in opinions %}
+                    <ul> sentence id: {{ o.sent_id }}
+                    <li>{{ o.expression }} </li>
+                    <ul>
+                        polarity: {{ o.polarity }}
+
+                        <li>
+                            target: {{ o.target }}
+                        </li>
+                    </ul>
+                    </ul>
+                {% endfor %}
+                </ul>
+            </div><!--/span-->
+          </div><!--/row-->
+        </div><!--/span-->
+      </div><!--/row-->
+
+      <hr>
+
+    </div><!--/.fluid-container-->
+{% endblock %}

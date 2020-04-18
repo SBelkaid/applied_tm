@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block title %} Forbidden {% endblock %}
+{% block body %}
+ <h1>403 Error :(</h1>
+ <p>First authenticate to see what you were looking for is<p>
+ <a href="{{ url_for('login') }}">go somewhere nice, login</a>
+{% endblock %}
