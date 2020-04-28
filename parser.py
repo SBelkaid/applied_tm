@@ -5,15 +5,11 @@ import sys
 import lxml.etree
 import time
 import json
+import argparse
 from collections import defaultdict, Counter
 from nltk.tokenize.treebank import TreebankWordDetokenizer
 from models import Attribution, Claim, Opinion, Document, Entity, db_session, Predicate
 from KafNafParserPy import KafNafParser
-
-
-dir1 = "/Users/johndoe/Desktop/VU/Applied_TM/conll-allen-nlp"
-dir2 = "/Users/johndoe/Desktop/VU/Applied_TM/naf-newsreader-nlp"
-dir_list = [dir1, dir2]
 
 
 class Doc:
@@ -59,10 +55,10 @@ class Doc:
                     col, val = item
                     df_rows = self.df[self.df[col].str.contains(val)]
                     tokens = df_rows.groupby('sent_id')['word'].apply(list)
+                    tokens_id = df_rows.groupby('sent_id')['token_id'].apply(list)
                     untokenized = TreebankWordDetokenizer().detokenize(tokens.values[0])
                     sent_id = tokens.index[0]
                     # print(f"{val}: {untokenized}")
-                # print('\n')
                     extracted[val.split('-')[0]] = untokenized
                     extracted['sent_id'] = int(sent_id)
 
@@ -74,8 +70,11 @@ class Doc:
     def get_claims(self):
         df = self.df[self.df['claim'].str.contains('claim')]
         grouped = df.groupby('sent_id')['word'].apply(list)
-        sentences = [{'value': TreebankWordDetokenizer().detokenize(sent), 'sent_id': sent_id}
-                     for sent_id, sent in grouped.items()]
+        grouped_token_id = df.groupby('sent_id')['token_id'].apply(list)
+        sentences = []
+        for sent_id, sent in grouped.items():
+            sentences.append({'value': TreebankWordDetokenizer().detokenize(sent), 'sent_id': sent_id,
+                              'token_ids': json.dumps(grouped_token_id[sent_id])})
         return sentences
 
     def get_opinion_comment(self, opinion_list):
@@ -191,27 +190,24 @@ def start(path_dict):
         print(f"Time elapsed:{end_time-start_time}")
 
 
+def combine(doc):
+    kaf_tokens = doc.kaf_parser.get_tokens()
+
+
 if __name__ == "__main__":
-    # conll = '/Users/johndoe/Desktop/VU/Applied_TM/conll-allen-nlp/AGE-OF-AUTISM_20170620T044415.conll'
-    # kaf = '/Users/johndoe/Desktop/VU/Applied_TM/naf-newsreader-nlp/AGE-OF-AUTISM_20170620T044415.naf'
-    #
-    # doc = Doc(conll, kaf)
-    # attributions = doc.get_attributions()
+    # test1 = '/Users/nadiamanarbelkaid/ATM/conll-allen-nlp/21st-Century-Wire_20170627T181355.conll'
+    # test2 = '/Users/nadiamanarbelkaid/ATM/naf-newsreader-nlp/21st-Century-Wire_20170627T181355.naf'
+    # doc = Doc(test1, test2)
+    # claims = doc.get_claims()
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('conll_fp')
+    parser.add_argument('kaf_fp')
+    args = parser.parse_args()
 
-    # for i, v in enumerate(doc.kaf_parser.get_tokens(), 1):
-    #     word1 = v.get_text().lower()
-    #     sent1 = v.get_
-    #     word2 = doc.df['word'][i].lower()
-    #     if not word1[:2] == word2[:2]:
-    #         print(word1, word2, i)
-    #         break
-
-
-    # list_preds = list(preds)
-    # l1 = list(list_preds[0][1])
-    # print(l1)
-
+    dir1 = args.conll_fp
+    dir2 = args.kaf_fp
+    dir_list = [dir1, dir2]
 
     file_paths = defaultdict(list)
     for d_path in dir_list:

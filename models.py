@@ -45,6 +45,7 @@ class Claim(Base):
     id = Column(Integer, primary_key=True)
     value = Column(String)
     sent_id = Column(Integer)
+    token_ids = Column(JSON)
     doc_id = Column(Integer, ForeignKey('documents.id'))
     doc = relationship("Document", backref=backref("claims", lazy="dynamic"))
 
