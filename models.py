@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, Table, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy import Column, Integer, String, JSON
+from sqlalchemy import Column, Integer, String, JSON, BLOB
 import flask_login
 import json
 
@@ -20,12 +20,41 @@ class User(flask_login.UserMixin):
     pass
 
 
+class Perspective(Base):
+    __tablename__ = 'perspectives'
+    id = Column(Integer, primary_key=True)
+    statement = Column(String)
+    statement_span = Column(JSON)
+    opinion_info = Column(JSON)
+    cue = Column(String)
+    roles_span = Column(JSON)
+    order = Column(String)
+    term_to_word = Column(JSON)
+    source_entity = Column(String)
+    doc_id = Column(Integer, ForeignKey('documents.id'))
+    doc = relationship("Document", backref=backref("perspectives     ", lazy="dynamic"))
+
+    @property
+    def serialize(self):
+        return {
+            'statement': self.statement,
+            'statement_span': self.statement_span,
+            'cue': self.cue,
+            'opinion_info': self.opinion_info,
+            'roles_span': self.roles_span,
+            'term_to_word': self.term_to_word,
+            'source_entity': self.source_entity,
+            'doc_id': self.doc_id
+        }
+
+
 class Entity(Base):
     __tablename__ = 'entities'
     id = Column(Integer, primary_key=True)
     value = Column(String)
     type = Column(String)
     sent_id = Column(Integer)
+    span = Column(JSON)
     doc_id = Column(Integer, ForeignKey('documents.id'))
     doc = relationship("Document", backref=backref("entities", lazy="dynamic"))
 
@@ -37,7 +66,6 @@ class Entity(Base):
             'type': self.type,
             'sent_id': self.sent_id
         }
-
 
 
 class Claim(Base):
@@ -57,29 +85,6 @@ class Claim(Base):
             'sent_id': self.sent_id,
             'doc_id': self.doc_id
         }
-
-
-class Predicate(Base):
-    __tablename__ = 'predicates'
-    id = Column(Integer, primary_key=True)
-    predicate = Column(String)
-    sent_id = Column(Integer)
-    doc_id = Column(Integer, ForeignKey('documents.id'))
-    term_id = Column(String)
-    roles = Column(JSON)
-    doc = relationship("Document", backref=backref("propositions", lazy="dynamic"))
-
-    @property
-    def serialize(self):
-        return {
-            'id': self.id,
-            'doc_id': self.doc_id,
-            'predicate': self.predicate,
-            'roles': json.loads(self.roles),
-            'tid_predicate': self.term_id,
-            'sent_id': self.sent_id
-        }
-
 
 
 class Attribution(Base):
@@ -103,28 +108,6 @@ class Attribution(Base):
             'sent_id': self.sent_id
         }
 
-
-class Opinion(Base):
-    __tablename__ = 'opinions'
-    id = Column(Integer, primary_key=True)
-    expression = Column(String)
-    sent_id = Column(Integer)
-    target = Column(String)
-    holder = Column(String)
-    polarity = Column(String)
-    doc_id = Column(Integer, ForeignKey('documents.id'))
-    doc = relationship("Document", backref=backref("opinions", lazy="dynamic"))
-
-    @property
-    def serialize(self):
-        return {
-            'id': self.id,
-            'doc_id': self.doc_id,
-            'expression': self.expression,
-            'target': self.target,
-            'sent_id': self.sent_id,
-            'polarity': self.polarity
-        }
 
 class Document(Base):
     __tablename__ = 'documents'

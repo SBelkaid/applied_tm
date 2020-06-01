@@ -1,15 +1,83 @@
 import pandas
 import re
 import os
-import sys
 import lxml.etree
 import time
 import json
 import argparse
-from collections import defaultdict, Counter
-from nltk.tokenize.treebank import TreebankWordDetokenizer
-from models import Attribution, Claim, Opinion, Document, Entity, db_session, Predicate
+import sys
+from collections import defaultdict, OrderedDict
+from models import Attribution, Claim, Document, Entity, db_session
+from models import Perspective as PerspectiveModel
 from KafNafParserPy import KafNafParser
+from KafNafParserPy import Cpredicate
+from KafNafParserPy import Copinion
+from nltk.tokenize.treebank import TreebankWordDetokenizer
+
+path_to_sip_file = 'sip-frames.txt'
+with open(path_to_sip_file) as fp:
+    sip_frames = fp.read().splitlines()
+
+DETOKENIZER = TreebankWordDetokenizer()
+
+
+class Perspective:
+    def __init__(self, predicate_info, opinion_info, source_article_id, source_entity=None):
+        self.predicate_info = predicate_info
+        self.opinion_info = opinion_info
+        self.source_article = source_article_id
+        self.all_terms = self.predicate_info['all_terms']
+        self.all_tokens = self.predicate_info['all_tokens']
+        self.term_word_mapping = self.gen_term_word_mapping(self.all_tokens)
+        self.source_entity = source_entity
+        self.cue = predicate_info['predicate']
+
+    def return_statement(self):
+        return DETOKENIZER.detokenize(
+            [self.all_tokens[token].get_text() for token in sorted(self.predicate_info['all_tokens'],
+                                                                   key=lambda x: int(x[1:]))])
+
+    def gen_term_word_mapping(self, token_maping):
+        return {k.replace('w', 't'): v.get_text() for k, v in token_maping.items()}
+
+    def get_tokens(self, list_term_ids):
+        return ' '.join([self.term_word_mapping[item] for item in list_term_ids])
+
+    def return_opinions(self):
+        opinions = []
+        for opinion in self.opinion_info:
+            expression = DETOKENIZER.detokenize(
+                [self.term_word_mapping.get(term_id) for term_id in opinion['expression']])
+            target = DETOKENIZER.detokenize([self.term_word_mapping.get(term_id) for term_id in opinion['target']])
+            expression_span = opinion['expression']
+            target_span = opinion['target']
+            polarity = opinion['opinion'].get_expression().get_polarity()
+            opinions.append({'expression': expression,
+                             'target': target,
+                             'polarity': polarity,
+                             'expression_span': expression_span,
+                             'target_span': target_span})
+        return opinions
+
+
+    def store_perspective(self):
+        session = db_session()
+        data = {'statement': self.return_statement(),
+                'statement_span': OrderedDict((term, self.term_word_mapping[term]) for term in self.all_terms),
+                'cue': self.get_tokens(self.cue),
+                'opinion_info': self.return_opinions(),
+                'roles_span': self.predicate_info['roles'],
+                'order': self.predicate_info['order'].text,
+                'term_to_word': self.term_word_mapping,
+                'source_entity': self.source_entity,
+                'doc_id': self.source_article
+                }
+        session.add(PerspectiveModel(**data))
+        session.commit()
+
+    def __repr__(self):
+        # return f"<Predicate: {self.predicate_info}>"
+        return f"<{self.return_statement()}>"
 
 
 class Doc:
@@ -24,23 +92,25 @@ class Doc:
         self.df.index += 1
         self.raw = self.evaluator('raw/text()')
         self.tokens_mapping = {t.get_id().replace('w', 't'): t.get_sent() for t in self.kaf_parser.get_tokens()}
+        self.opinion_term_mapping = {
+            opinion.get_id(): [element.attrib['id'] for element in opinion.node.iterdescendants()
+                               if element.tag == 'target'] for opinion in self.kaf_parser.get_opinions()}
+        self.opinion_idx = {opinion.get_id(): opinion.get_node() for opinion in self.kaf_parser.get_opinions()}
+        self.entities = self.get_entities()
+        self.entities_span = [e['span'] for e in self.entities]
 
     def process(self, session, filename):
         print(f"processing: {filename}")
-        added_doc = self.write_db([{'name':filename, 'text': self.raw[0]}], session, Document)
-        session.commit() # committing for document
 
+        added_doc = self.write_db([{'name': filename, 'text': self.raw[0]}], session, Document)
+        session.commit()  # committing for document
+        events = self.get_props()
+        perspectives = self.generate_perspectives(events, added_doc)
         attributions = self.get_attributions()
         claims = self.get_claims()
-        opinions = self.get_opinions()
-        entities = self.get_entities()
-        propositions = self.create_props(self.get_props())
-
         self.write_db(attributions, session, Attribution, added_doc.id)
         self.write_db(claims, session, Claim, added_doc.id)
-        self.write_db(opinions, session, Opinion, added_doc.id)
-        self.write_db(entities, session, Entity, added_doc.id)
-        self.write_db(propositions, session, Predicate, added_doc.id)
+        self.write_db(self.entities, session, Entity, added_doc.id)
         session.commit()
 
     def get_attributions(self):
@@ -58,7 +128,6 @@ class Doc:
                     tokens_id = df_rows.groupby('sent_id')['token_id'].apply(list)
                     untokenized = TreebankWordDetokenizer().detokenize(tokens.values[0])
                     sent_id = tokens.index[0]
-                    # print(f"{val}: {untokenized}")
                     extracted[val.split('-')[0]] = untokenized
                     extracted['sent_id'] = int(sent_id)
 
@@ -77,55 +146,63 @@ class Doc:
                               'token_ids': json.dumps(grouped_token_id[sent_id])})
         return sentences
 
-    def get_opinion_comment(self, opinion_list):
-        opinion_comment = []
-        # tokens_mapping = {t.get_id().replace('w', 't'): t.get_sent() for t in self.kaf_parser.get_tokens()}
-        for opinion_el in opinion_list:
-            comms = {}
-            for opinion_part in opinion_el:
-                val = opinion_part.xpath('comment()')[0].text
-                if opinion_part.tag == "opinion_expression":
-                    polarity = opinion_part.xpath('@polarity')
-                    tid = opinion_part.xpath('span/target[1]/@id')[0]
-                    sent_id = self.tokens_mapping[tid]
-                    comms['expression'] = val
-                    comms['polarity'] = polarity[0]
-                    comms['sent_id'] = sent_id
-                if opinion_part.tag == "opinion_target":
-                    comms['target'] = val
-                if opinion_part.tag == "opinion_holder":
-                    comms['holder'] = val
-            opinion_comment.append(comms)
-        return opinion_comment
-
-    def get_opinions(self):
-        all_opinions = self.evaluator('//opinion')
-        targets_and_expression = [i.xpath('*[self::opinion_expression | self::opinion_target | self::opinion_holder]')
-                                  for i in all_opinions]
-        content = self.get_opinion_comment(targets_and_expression)
-        return content
-
     def get_props(self):
-        roles = (zip(pred.node.xpath('role/@semRole'), pred.node.xpath('role/comment()'))
-                 for pred in self.kaf_parser.get_predicates())
-        predicates = ((e.node.xpath('comment()')[0].text,e.node.xpath('child::span/target/@id')) for e in
-                      self.kaf_parser.get_predicates())
-        return zip(predicates, roles)
+        return (pred.node.values()[0] for pred in self.kaf_parser.get_predicates() if
+                set(pred.node.xpath('externalReferences['
+                                    '1]/externalRef['
+                                    '@resource="FrameNet"]/@reference')).intersection(sip_frames))
 
-    def create_props(self, raw_props):
-        # tokens_mapping = {t.get_id().replace('w', 't'): t.get_sent() for t in self.kaf_parser.get_tokens()}
-        predicates = []
-        for p in raw_props:
-            predicate = p[0][0]
-            term_id = p[0][1][0]
-            sent_id = self.tokens_mapping[term_id]
-            roles = p[1]
-            themes, texts = zip(*roles)
-            role_text = list(map(lambda x: x.text, texts))
-            role_dict = json.dumps(dict(zip(themes, role_text)))
-            predicates.append({"predicate": predicate, "sent_id": sent_id, "term_id": term_id, "roles": role_dict})
-            # print(f"term_id: {term_id}, sent_id:{tokens_mapping[term_id]} predicate:{predicate}: {themes} {role_text}")
-        return predicates
+    def get_opinion_data(self, opinion_id):
+        extracted_opinion = {}
+        opinion_element = self.opinion_idx[opinion_id]
+        opinion = Copinion(opinion_element)
+        target = opinion.get_target()
+        holder = opinion.get_holder()
+        if not target:
+            return None
+        extracted_opinion['target'] = target.get_span().get_span_ids()
+        if holder:
+            extracted_opinion['holder'] = holder.get_span().get_span_ids()
+        extracted_opinion['expression'] = opinion.get_expression().get_span().get_span_ids()
+        extracted_opinion['opinion'] = opinion
+        return extracted_opinion
+
+    def get_srl_data(self, pred_id):
+        ext_pred = {}
+        predicate_element = self.kaf_parser.srl_layer.idx[pred_id]
+        kaf_pred = Cpredicate(predicate_element)
+        ext_pred['predicate'] = kaf_pred.get_span().get_span_ids()
+        ext_pred['roles'] = OrderedDict(
+            (role.get_semRole(), role.get_span().get_span_ids()) for role in kaf_pred.get_roles())
+        ext_pred['order'] = predicate_element.getprevious()
+        ext_pred['all_term_ids'] = [element.attrib['id'] for element in predicate_element.iterdescendants() if
+                                    element.tag == 'target']
+        ext_pred['all_terms'] = {term_id: self.kaf_parser.get_term(term_id) for term_id in ext_pred['all_term_ids']}
+        ext_pred['all_tokens'] = {}
+        for token_id in ext_pred['all_term_ids']:
+            token_id = token_id.replace('t', 'w')
+            ext_pred['all_tokens'][token_id] = self.kaf_parser.get_token(token_id)
+
+        return ext_pred
+
+    def generate_perspectives(self, events, added_doc):
+        perspectives = []
+        for event_id in events:
+            opinion_data = []
+            pred = self.get_srl_data(event_id)
+            for opinion_id, term_ids in self.opinion_term_mapping.items():
+                if set(term_ids).issubset(set(pred['all_term_ids'])):
+                    extracted_opinion = self.get_opinion_data(opinion_id)
+                    if extracted_opinion:
+                        opinion_data.append(extracted_opinion)
+            p = Perspective(pred, opinion_data, added_doc.id)
+            perspectives.append(p)
+            a1 = pred['roles'].get('A0')
+            if a1:
+                if a1 in self.entities_span:
+                    p.source_entity = p.get_tokens(a1)
+            p.store_perspective()
+        return perspectives
 
     @staticmethod
     def convert_attr(attr_list):
@@ -145,23 +222,13 @@ class Doc:
             attrs[i] = per_content
         return attrs
 
-    def get_ids(self, list_ids):
-        needed_ids = []
-        for term_el in list_ids:
-            id_words = []
-            for id in term_el:
-                int_val = int(id.split('t')[-1])-1
-                id_words.append(int_val)
-            needed_ids.append(id_words)
-        return needed_ids
-
     def get_entities(self):
-        all_entities = self.evaluator('//entity')
-        return [{'value':e.xpath('references/comment()')[0].text, 'type':e.xpath('@type')[0],
-                 'sent_id': self.tokens_mapping[e.xpath('references/span/target[1]/@id')[0]]} for e in all_entities]
-
-    def get_people(self):
-        return [e.text for e in self.evaluator('entities//entity[@type="PER"]/references/comment()')]
+        all_entities = self.kaf_parser.get_entities()
+        return [{'value': e.node.xpath('references/comment()')[0].text,
+                 'type': e.node.xpath('@type')[0],
+                 'span': list(e.get_references())[0].get_span().get_span_ids(),
+                 'sent_id': self.tokens_mapping[e.node.xpath('references/span/target[1]/@id')[0]]} for e in
+                all_entities]
 
     def write_db(self, content_list, session, db_model, document_id=None):
         for e in content_list:
@@ -187,19 +254,19 @@ def start(path_dict):
         start_time = time.time()
         doc.process(session, fn)
         end_time = time.time()
-        print(f"Time elapsed:{end_time-start_time}")
-
-
-def combine(doc):
-    kaf_tokens = doc.kaf_parser.get_tokens()
+        print(f"Time elapsed:{end_time - start_time}")
 
 
 if __name__ == "__main__":
-    # test1 = '/Users/nadiamanarbelkaid/ATM/conll-allen-nlp/21st-Century-Wire_20170627T181355.conll'
-    # test2 = '/Users/nadiamanarbelkaid/ATM/naf-newsreader-nlp/21st-Century-Wire_20170627T181355.naf'
+    # test1 = '/Users/nadiamanarbelkaid/ATM/conll-mate-nlp/Backyard-Secret-Exposed_20161021T055227.conll'
+    # test2 = '/Users/nadiamanarbelkaid/ATM/naf-newsreader-nlp/Backyard-Secret-Exposed_20161021T055227.naf'
     # doc = Doc(test1, test2)
-    # claims = doc.get_claims()
+    # ses = db_session()
+    # doc.process(ses, test2)
 
+    # claims = doc.get_claims()
+    # opinions = doc.get_opinions()
+    #
     parser = argparse.ArgumentParser()
     parser.add_argument('conll_fp')
     parser.add_argument('kaf_fp')
@@ -224,4 +291,4 @@ if __name__ == "__main__":
     start_total = time.time()
     start(file_paths)
     end_total = time.time()
-    print(f"Total time elapsed parsing all documents {end_total-start_total}")
+    print(f"Total time elapsed parsing all documents {end_total - start_total}")

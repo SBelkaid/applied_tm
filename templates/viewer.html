@@ -31,22 +31,26 @@
               <h2>Perspectives</h2>
                 <ul>
                     {% for pers in perspectives%}
-                    <li>
-                        <ul>
-                            <li><p> perspective id: {{ pers }} <br> </p></li>
-                            <li><p>source: {{ perspectives[pers]['source'] }}</p></li>
-                            {% if perspectives[pers]['sentiment_cue'] == 'positive' %}<li><p style="color:green;">cue: {{ perspectives[pers]['cue'] }} </p></li>
-                            {% elif perspectives[pers]['sentiment_cue'] == 'negative' %}
-                            <li><p style="color:red;">cue: {{ perspectives[pers]['cue'] }} </p></li>
-                            {% else %}
-                            <li><p>cue: {{ perspectives[pers]['cue'] }}</p></li>
-                            {% endif %}
-                            <li><p>argument: {{ perspectives[pers]['argument'] }}</p></li>
+                    <li><p>
+                        {% for term in pers.construct_statement() %}
+                            {% for role in pers.roles_span %}
+                                {% if term[1] in pers.role_span[role] %}
+                                    <span class="">{{ term[0] }}</span>
 
-                        </ul>
-                    </li>
+<!--                                    {% if pers.opinion_info %}-->
+<!--                                     <ul>-->
+<!--                                        {% for opinion in pers.opinion_info %}-->
+<!--                                            <li><p>{{opinion}}</p></li>-->
+<!--                                        {% endfor %}-->
+<!--                                    </ul>-->
+<!--                                    {% endif %}-->
 
+                                {% endfor %}
+                    </p></li>
                     {% endfor %}
+
+
+
                 </ul>
             </div><!--/span-->
           </div><!--/row-->
@@ -74,45 +78,6 @@
                             <li>content: {{ attr.content }}</li>
                         </ul>
                     </li>
-                {% endfor %}
-                </ul>
-            </div><!--/span-->
-          </div><!--/row-->
-          <div class="row-fluid">
-            <div class="span12">
-              <h2>Propositions</h2>
-                <ul>
-                {% for p in props %}
-                    <li>sentence id: {{ p.sent_id }} </li>
-                    <ul>
-                        <li>predicate: {{ p.predicate }} </li>
-                        <ul>
-                        {% for key, val in p.roles.items() %}
-                        <li>
-                            {{ key }}: {{ val }}
-                        </li>
-                        {% endfor %}
-                        </ul>
-                    </ul>
-                {% endfor %}
-                </ul>
-            </div><!--/span-->
-          </div><!--/row-->
-          <div class="row-fluid">
-            <div class="span12">
-              <h2>Opinions</h2>
-                <ul>
-                {% for o in opinions %}
-                    <ul> sentence id: {{ o.sent_id }}
-                    <li>{{ o.expression }} </li>
-                    <ul>
-                        polarity: {{ o.polarity }}
-
-                        <li>
-                            target: {{ o.target }}
-                        </li>
-                    </ul>
-                    </ul>
                 {% endfor %}
                 </ul>
             </div><!--/span-->
