@@ -16,7 +16,7 @@ app = Flask(__name__)
 login_manager.init_app(app)
 app.secret_key = 'AGhauch3woo5xee'
 client = app.test_client()
-users = {'soufyan@isda.xyz': {'password': 'cJH!X9VB16!'}, 'p.t.j.m.vossen@vu.nl': {'password': 'Eep9thoo'}}
+users = {'p.t.j.m.vossen@vu.nl': {'password': 'Eep9thoo'}}
 session = db_session()
 analyser = SentimentIntensityAnalyzer()
 CLAIMS_ATTRIBUTIONS = {doc_id:sent_id for sent_id, doc_id in
