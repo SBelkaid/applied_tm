@@ -1,7 +1,58 @@
 {% extends "base.html" %}
 {% block title %} Viewer {% endblock %}
 {% block head %}
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
  {{ super() }}
+<style>
+.R-A0 {
+    background-color: rgba(0, 0, 0, 0.3);
+}
+.C-A1 {
+    background-color: rgba(0, 255, 255, 0.3);
+}
+.A0 {
+    background-color: rgba(0, 255, 0, 0.3);
+}
+.A1 {
+    background-color: rgba(0, 0, 255, 0.3);
+}
+.A2 {
+    background-color: rgba(255, 0, 0, 0.3);
+}
+.A4 {
+    background-color: rgba(255, 123, 221, 0.3);
+}
+.AM-TMP {
+    background-color: rgba(255, 128, 0, 0.3);
+}
+.AM-MNR {
+    background-color: rgba(255, 255, 0, 0.3);
+}
+.AM-MOD {
+    background-color: rgba(153, 153, 255, 0.3);
+}
+.AM-LOC {
+    background-color: rgba(153, 0, 76, 0.3);
+}
+.AM-PNC {
+    background-color: rgba(153, 153, 0, 0.3);
+}
+.AM-DIS {
+    background-color: rgba(255, 0, 127, 0.3);
+}
+.AM-ADV {
+    background-color: rgba(127, 127, 0, 0.3);
+}
+.AM-DIR {
+    background-color: rgba(160, 160, 160, 0.3);
+}
+.AM-CAU {
+    background-color: rgba(160, 160, 160, 0.3);
+}
+.CUE {
+    border-style:solid;
+}
+</style>
 {% endblock %}
 {% block body %}
     <div class="container-fluid">
@@ -20,7 +71,12 @@
         </div><!--/span-->
         <div class="span9">
             <h1>Full Text</h1>
+
+
           <div class="hero-unit">
+              {% if doc_name %}
+              <h2>Title: {{ doc_name }}</h2>
+              {% endif %}
               {% if raw_text %}
             <p>{{ raw_text.text }}</p>
               {% endif %}
@@ -30,23 +86,30 @@
             <div class="span12">
               <h2>Perspectives</h2>
                 <ul>
-                    {% for pers in perspectives%}
-                    <li><p>
-                        {% for term in pers.construct_statement() %}
-                            {% for role in pers.roles_span %}
-                                {% if term[1] in pers.role_span[role] %}
-                                    <span class="">{{ term[0] }}</span>
 
-<!--                                    {% if pers.opinion_info %}-->
-<!--                                     <ul>-->
-<!--                                        {% for opinion in pers.opinion_info %}-->
-<!--                                            <li><p>{{opinion}}</p></li>-->
-<!--                                        {% endfor %}-->
-<!--                                    </ul>-->
-<!--                                    {% endif %}-->
+                    {% for pers in perspectives %}
+                    <li>
+                        <div>
+                            <p>
+                            {% for term in pers.construct_statement() %}
+                                <span class="{{ pers.get_key(term[1]) }}" data-toggle="tooltip" title="{{ pers.get_key(term[1]) }}">{{ term[0] }}</span>
+                            {% endfor %}
+                            </p>
+                            <h5>Opinions:</h5>
+                            {% for el in pers.get_opinion_info() %}
+                                {{ el | safe}}
+                            {% endfor %}
+                            <h5>Enities:</h5>
+                            {% if pers.source_entity %}
+                                    <p>{{ pers.source_entity }}</p>
+                            {% else %}
+                            <p>None</p>
+                            {% endif %}
+                            <h5>Sentiment:</h5>
+                            <p>{{ pers.sentiment }}</p>
+                        </div>
+                    </li>
 
-                                {% endfor %}
-                    </p></li>
                     {% endfor %}
 
 
@@ -88,4 +151,17 @@
       <hr>
 
     </div><!--/.fluid-container-->
+<!--<script>-->
+<!--    console.log('hello');-->
+<!--   $("span").hover(-->
+<!--   function() {-->
+<!--      $(this).find(".role_description").css("display","block");-->
+<!--      console.log('hovering');-->
+<!--   },-->
+<!--   function() {-->
+<!--      $(this).find(".role_description").css("display","none");-->
+<!--      console.log('not-hovering');-->
+<!--   }-->
+<!--);-->
+<!--</script>-->
 {% endblock %}

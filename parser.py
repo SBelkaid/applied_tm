@@ -6,6 +6,8 @@ import time
 import json
 import argparse
 import sys
+import operator
+import csv
 from collections import defaultdict, OrderedDict
 from models import Attribution, Claim, Document, Entity, db_session
 from models import Perspective as PerspectiveModel
@@ -13,16 +15,25 @@ from KafNafParserPy import KafNafParser
 from KafNafParserPy import Cpredicate
 from KafNafParserPy import Copinion
 from nltk.tokenize.treebank import TreebankWordDetokenizer
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+analyser = SentimentIntensityAnalyzer()
 path_to_sip_file = 'sip-frames.txt'
+path_to_metadata = 'metadata.tsv'
 with open(path_to_sip_file) as fp:
     sip_frames = fp.read().splitlines()
+
+with open(path_to_metadata) as fp:
+    reader = csv.reader(fp, delimiter='\t')
+    #skip line for header
+    next(reader)
+    doc_metadata = {line[0]: line[1:] for line in reader}
 
 DETOKENIZER = TreebankWordDetokenizer()
 
 
 class Perspective:
-    def __init__(self, predicate_info, opinion_info, source_article_id, source_entity=None):
+    def __init__(self, predicate_info, opinion_info, source_article_id, source_entity=None, target_entity=None):
         self.predicate_info = predicate_info
         self.opinion_info = opinion_info
         self.source_article = source_article_id
@@ -30,12 +41,18 @@ class Perspective:
         self.all_tokens = self.predicate_info['all_tokens']
         self.term_word_mapping = self.gen_term_word_mapping(self.all_tokens)
         self.source_entity = source_entity
+        self.target_entity = target_entity
         self.cue = predicate_info['predicate']
+        self.sentiment = self.get_sentiment()
+        self.frame = predicate_info['frame']
 
     def return_statement(self):
         return DETOKENIZER.detokenize(
             [self.all_tokens[token].get_text() for token in sorted(self.predicate_info['all_tokens'],
                                                                    key=lambda x: int(x[1:]))])
+
+    def return_role_text(self):
+        return {role: self.get_tokens(self.predicate_info['roles'].get(role)) for role in self.predicate_info['roles']}
 
     def gen_term_word_mapping(self, token_maping):
         return {k.replace('w', 't'): v.get_text() for k, v in token_maping.items()}
@@ -56,9 +73,14 @@ class Perspective:
                              'target': target,
                              'polarity': polarity,
                              'expression_span': expression_span,
-                             'target_span': target_span})
+                             'target_span': target_span,
+                             'frame': self.frame})
         return opinions
 
+    def get_sentiment(self):
+        sent = analyser.polarity_scores(self.return_statement())
+        del sent['compound']
+        return max(sent.items(), key=operator.itemgetter(1))[0]
 
     def store_perspective(self):
         session = db_session()
@@ -67,10 +89,14 @@ class Perspective:
                 'cue': self.get_tokens(self.cue),
                 'opinion_info': self.return_opinions(),
                 'roles_span': self.predicate_info['roles'],
+                'roles_text': self.return_role_text(),
                 'order': self.predicate_info['order'].text,
                 'term_to_word': self.term_word_mapping,
                 'source_entity': self.source_entity,
-                'doc_id': self.source_article
+                'target_entity': self.target_entity,
+                'doc_id': self.source_article,
+                'sentiment': self.sentiment,
+                'frame': self.frame
                 }
         session.add(PerspectiveModel(**data))
         session.commit()
@@ -100,9 +126,16 @@ class Doc:
         self.entities_span = [e['span'] for e in self.entities]
 
     def process(self, session, filename):
+        nfilename = filename.split('.')[0]
         print(f"processing: {filename}")
+        metadata = doc_metadata[nfilename]
+        added_doc = self.write_db([{'name': nfilename,
+                                    'text': self.raw[0],
+                                    'url': metadata[0],
+                                    'publisher': metadata[-3],
+                                    'author': metadata[-2]}],
+                                  session, Document)
 
-        added_doc = self.write_db([{'name': filename, 'text': self.raw[0]}], session, Document)
         session.commit()  # committing for document
         events = self.get_props()
         perspectives = self.generate_perspectives(events, added_doc)
@@ -147,10 +180,9 @@ class Doc:
         return sentences
 
     def get_props(self):
-        return (pred.node.values()[0] for pred in self.kaf_parser.get_predicates() if
-                set(pred.node.xpath('externalReferences['
-                                    '1]/externalRef['
-                                    '@resource="FrameNet"]/@reference')).intersection(sip_frames))
+        x_statement = 'externalReferences[1]/externalRef[@resource="FrameNet"]/@reference'
+        return ((pred.node.values()[0], pred.node.xpath(x_statement)[0]) for pred in self.kaf_parser.get_predicates() if
+                set(pred.node.xpath(x_statement)).intersection(sip_frames))
 
     def get_opinion_data(self, opinion_id):
         extracted_opinion = {}
@@ -189,7 +221,8 @@ class Doc:
         perspectives = []
         for event_id in events:
             opinion_data = []
-            pred = self.get_srl_data(event_id)
+            pred = self.get_srl_data(event_id[0])
+            pred['frame'] = event_id[1]
             for opinion_id, term_ids in self.opinion_term_mapping.items():
                 if set(term_ids).issubset(set(pred['all_term_ids'])):
                     extracted_opinion = self.get_opinion_data(opinion_id)
@@ -197,10 +230,13 @@ class Doc:
                         opinion_data.append(extracted_opinion)
             p = Perspective(pred, opinion_data, added_doc.id)
             perspectives.append(p)
-            a1 = pred['roles'].get('A0')
+            a0 = pred['roles'].get('A0')
+            a1 = pred['roles'].get('A1')
             if a1:
+                if a0 in self.entities_span:
+                    p.source_entity = p.get_tokens(a0)
                 if a1 in self.entities_span:
-                    p.source_entity = p.get_tokens(a1)
+                    p.target_entity = p.get_tokens(a1)
             p.store_perspective()
         return perspectives
 
@@ -264,9 +300,6 @@ if __name__ == "__main__":
     # ses = db_session()
     # doc.process(ses, test2)
 
-    # claims = doc.get_claims()
-    # opinions = doc.get_opinions()
-    #
     parser = argparse.ArgumentParser()
     parser.add_argument('conll_fp')
     parser.add_argument('kaf_fp')

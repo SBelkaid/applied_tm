@@ -6,6 +6,7 @@ from models import Attribution
 from models import Entity
 from models import Perspective
 from flask_login import current_user
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import sqlalchemy
 import flask_login
 
@@ -17,7 +18,8 @@ app.secret_key = 'AGhauch3woo5xee'
 client = app.test_client()
 users = {'soufyan@isda.xyz': {'password': 'cJH!X9VB16!'}, 'p.t.j.m.vossen@vu.nl': {'password': 'Eep9thoo'}}
 session = db_session()
-CLAIMS_ATTRIBUTIONS = { doc_id:sent_id for sent_id, doc_id in
+analyser = SentimentIntensityAnalyzer()
+CLAIMS_ATTRIBUTIONS = {doc_id:sent_id for sent_id, doc_id in
                        session.query(Claim.sent_id, Claim.doc_id).filter(Attribution.sent_id == Claim.sent_id,
                                                                          Attribution.doc_id == Claim.doc_id).all()}
 
@@ -72,16 +74,21 @@ class PerspectiveViewer:
         self.roles_span = serialized_perspective['roles_span']
         self.source_entity = serialized_perspective['source_entity']
         self.doc_id = serialized_perspective['doc_id']
+        self.sentiment = serialized_perspective['sentiment']
 
-    def get_statement(self):
-        return self.statement
+    def get_key(self, tid):
+        roles = [key for (key, value) in self.roles_span.items() if tid in value]
+        if not roles:
+            if self.mapping[tid] == self.cue:
+                return "CUE"
+            return None
+        return roles.pop()
 
     def get_opinion_info(self):
-        return self.opinion_info
+        return [f"<p>expression: {opinion['expression']}, target: {opinion['target']}, polarity: {opinion['polarity']}</p>" for opinion in self.opinion_info]
 
     def construct_statement(self):
         return [(self.mapping[token_id], token_id) for token_id in sorted(self.mapping, key=lambda x: int(x[1:]))]
-
 
 
 @app.route('/viewer/<int:doc_id>', methods=['GET'])
@@ -92,12 +99,13 @@ def viewer(doc_id=None):
     try:
         if doc_id:
             doc = Perspective.query.filter_by(doc_id=doc_id).all()
+            article = Document.query.filter_by(id=doc_id).one().name
             claims = [c.serialize for c in Claim.query.filter_by(doc_id=doc_id).all()]
             attributions = [a.serialize for a in doc]
             perspectives = [PerspectiveViewer(pers.serialize) for pers in doc]
             entities = [a.serialize for a in Entity.query.filter_by(doc_id=doc_id).all()]
             raw_text = Document.query.filter_by(id=doc_id).one().serialize
-            return render_template('viewer.html', raw_text=raw_text, claims=claims,
+            return render_template('viewer.html', doc_name=article, raw_text=raw_text, claims=claims,
                                    attributions=attributions, doc_nav=all_docs,
                                    perspectives=perspectives)
     except sqlalchemy.orm.exc.NoResultFound as e:

@@ -27,10 +27,14 @@ class Perspective(Base):
     statement_span = Column(JSON)
     opinion_info = Column(JSON)
     cue = Column(String)
+    frame = Column(String)
     roles_span = Column(JSON)
+    roles_text = Column(JSON)
     order = Column(String)
     term_to_word = Column(JSON)
     source_entity = Column(String)
+    target_entity = Column(String)
+    sentiment = Column(String)
     doc_id = Column(Integer, ForeignKey('documents.id'))
     doc = relationship("Document", backref=backref("perspectives     ", lazy="dynamic"))
 
@@ -42,9 +46,13 @@ class Perspective(Base):
             'cue': self.cue,
             'opinion_info': self.opinion_info,
             'roles_span': self.roles_span,
+            'roles_text': self.roles_text,
             'term_to_word': self.term_to_word,
             'source_entity': self.source_entity,
-            'doc_id': self.doc_id
+            'target_entity': self.target_entity,
+            'doc_id': self.doc_id,
+            'sentiment': self.sentiment,
+            'frame': self.frame
         }
 
 
@@ -114,6 +122,9 @@ class Document(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True)
     text = Column(Text)
+    url = Column(String)
+    publisher = Column(String)
+    author = Column(String)
 
     @property
     def serialize(self):
