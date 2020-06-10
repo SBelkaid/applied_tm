@@ -107,6 +107,9 @@ class Perspective:
 
 
 class Doc:
+    """
+    Class to extract all the required attributes from the NAF files and the claims and attributions from CoNLL files.
+    """
     def __init__(self, file_path_conll, file_path_kaf):
         self.conll_path = file_path_conll
         self.kaf_path = file_path_kaf
@@ -126,6 +129,12 @@ class Doc:
         self.entities_span = [e['span'] for e in self.entities]
 
     def process(self, session, filename):
+        """
+
+        :param session: sqlalchemy database session
+        :param filename: filename of the source document
+        :return:
+        """
         nfilename = filename.split('.')[0]
         print(f"processing: {filename}")
         metadata = doc_metadata[nfilename]
@@ -147,6 +156,10 @@ class Doc:
         session.commit()
 
     def get_attributions(self):
+        """
+        Parses the CoNLL files and extracts the attributions
+        :return: list of dictionairies containg the attribute value pairs of the attributions
+        """
         beginning_attr_content = self.df[self.df['attr_content'].str.contains('B-content')]['attr_content'].values
         splitted_content = [re.split(':|_|#', val) for val in beginning_attr_content]
         attr_identifiers = Doc.convert_attr(splitted_content)
@@ -170,6 +183,10 @@ class Doc:
         return attributions
 
     def get_claims(self):
+        """
+        Oarses the CoNLL files and extracts the claims.
+        :return: list of dictionaires containing the attribute value pairs of the claims
+        """
         df = self.df[self.df['claim'].str.contains('claim')]
         grouped = df.groupby('sent_id')['word'].apply(list)
         grouped_token_id = df.groupby('sent_id')['token_id'].apply(list)
@@ -180,11 +197,20 @@ class Doc:
         return sentences
 
     def get_props(self):
+        """
+        Extract all the propositions in the NAF file that intersect with list of source identifying predicates
+        :return: tuple generator
+        """
         x_statement = 'externalReferences[1]/externalRef[@resource="FrameNet"]/@reference'
         return ((pred.node.values()[0], pred.node.xpath(x_statement)[0]) for pred in self.kaf_parser.get_predicates() if
                 set(pred.node.xpath(x_statement)).intersection(sip_frames))
 
     def get_opinion_data(self, opinion_id):
+        """
+        Extract all the opinions and their elements
+        :param opinion_id: id of the opinion in the NAF file
+        :return: dictionairy of opinions and their elements
+        """
         extracted_opinion = {}
         opinion_element = self.opinion_idx[opinion_id]
         opinion = Copinion(opinion_element)
@@ -200,6 +226,12 @@ class Doc:
         return extracted_opinion
 
     def get_srl_data(self, pred_id):
+        """
+        This function extracts all the seperate parts for a predicate given its predicate_id in NAF. The format of the
+        word spans is changed to be able to get the token from the NAF file.
+        :param pred_id:
+        :return: returns a dictionairy containing predicate and its elements
+        """
         ext_pred = {}
         predicate_element = self.kaf_parser.srl_layer.idx[pred_id]
         kaf_pred = Cpredicate(predicate_element)
@@ -218,6 +250,12 @@ class Doc:
         return ext_pred
 
     def generate_perspectives(self, events, added_doc):
+        """
+        All the seperate elements from the previous layers are combined here by instantiating the Perspective class
+        :param events: list of propositions extracted from the get_props method
+        :param added_doc: the source document
+        :return:
+        """
         perspectives = []
         for event_id in events:
             opinion_data = []
@@ -242,6 +280,11 @@ class Doc:
 
     @staticmethod
     def convert_attr(attr_list):
+        """
+        A method to convert the format of the attributions in CoNLL format used by the get_attr method
+        :param attr_list: list of strings
+        :return:
+        """
         attrs = {}
         for i, el in enumerate(attr_list):
             per_content = {}
@@ -259,6 +302,10 @@ class Doc:
         return attrs
 
     def get_entities(self):
+        """
+        Method to extract all the entities in NAF and its attribute value pairs
+        :return: list if dictionairies
+        """
         all_entities = self.kaf_parser.get_entities()
         return [{'value': e.node.xpath('references/comment()')[0].text,
                  'type': e.node.xpath('@type')[0],
@@ -267,6 +314,14 @@ class Doc:
                 all_entities]
 
     def write_db(self, content_list, session, db_model, document_id=None):
+        """
+        method to store all the elements.
+        :param content_list: List of dictionairies
+        :param session: sqlalchemy database session
+        :param db_model: The Model that needs to be stored
+        :param document_id: id of the document being parsed
+        :return:
+        """
         for e in content_list:
             if document_id:
                 obj = db_model(doc_id=document_id, **e)
@@ -278,6 +333,11 @@ class Doc:
 
 
 def start(path_dict):
+    """
+    Starting function of the script that parses all the articles in the NAF folder and the CoNLL folder
+    :param path_dict: dictionairy containing all the file paths of the NAF and CoNLL files
+    :return:
+    """
     session = db_session()
     for fn in path_dict:
         paths = path_dict[fn]
@@ -294,15 +354,9 @@ def start(path_dict):
 
 
 if __name__ == "__main__":
-    # test1 = '/Users/nadiamanarbelkaid/ATM/conll-mate-nlp/Backyard-Secret-Exposed_20161021T055227.conll'
-    # test2 = '/Users/nadiamanarbelkaid/ATM/naf-newsreader-nlp/Backyard-Secret-Exposed_20161021T055227.naf'
-    # doc = Doc(test1, test2)
-    # ses = db_session()
-    # doc.process(ses, test2)
-
     parser = argparse.ArgumentParser()
-    parser.add_argument('conll_fp')
-    parser.add_argument('kaf_fp')
+    parser.add_argument('conll_fp', help="file path to the directory containing CoNLL files")
+    parser.add_argument('kaf_fp', help="file path to the directory containing NAF files")
     args = parser.parse_args()
 
     dir1 = args.conll_fp
