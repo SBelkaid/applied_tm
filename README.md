@@ -36,6 +36,16 @@ NameOfComputer: python parser.py conll-allen-nlp naf-newsreader-nlp
 
 ```
 
+Running the flask-server, will serve the flask-app on http://127.0.0.1:8999/
+
+
+```shell
+
+NameOfComputer: python app.py
+
+```
+
+
 Results
 -------------
 parser.py generates sqlite.db a database file containing parsed information from the NAF and CoNLL files. One can use the dbsqlitebrowser to browse
